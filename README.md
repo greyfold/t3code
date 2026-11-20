@@ -1,3 +1,7 @@
+> **Fork note.** This fork adds [`tailscale-build/`](./tailscale-build/README.md): scripts that build the macOS
+> app from upstream's stable releases with T3 Connect switched off, for use over Tailscale. The app's source is
+> unchanged; `main` mirrors upstream. Unofficial, not affiliated with T3 Tools.
+
 <p align="center">
   <a href="https://t3.codes">
     <img src="./assets/prod/t3-black-web-icon-192x192.png" width="80" height="80" alt="T3 Code logo" />

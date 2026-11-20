@@ -1,0 +1,6 @@
+/config.env
+/src/
+/toolchain/
+/release/
+/logs/
+/state/
