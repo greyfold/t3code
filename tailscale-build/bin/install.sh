@@ -16,7 +16,10 @@ app="$(find "$mount" -maxdepth 1 -name '*.app' | head -n 1)"
 name="$(basename "$app")"
 dest="/Applications/$name"
 
-if pgrep -f "$dest/Contents/MacOS/" >/dev/null 2>&1; then
+# Fixed-string match on a captured list: the app name contains parentheses (a regex
+# group for pgrep), and piping ps into `grep -q` fails under pipefail when grep exits early.
+processes="$(ps -axo comm)"
+if grep -qF "$dest/Contents/MacOS/" <<<"$processes"; then
   echo "install: $name is running, quit it first" >&2
   exit 2
 fi
