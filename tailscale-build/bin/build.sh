@@ -10,6 +10,9 @@
 # official (T3 Connect enabled) release.
 set -euo pipefail
 
+# The braces make bash read the whole script before running it, so an edit to this
+# file during a multi-minute build cannot corrupt the run in progress.
+{
 TAG="${1:?usage: build.sh <tag>}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/src"
@@ -37,6 +40,45 @@ git checkout --quiet --force --detach "refs/tags/$TAG"
 git reset --quiet --hard "refs/tags/$TAG"
 # A repo-root .env is what turns T3 Connect on. Never let one survive.
 rm -f .env .env.local
+
+# Product usage events (ingest.t3.codes) are on by default upstream. Flip the default
+# to off; T3CODE_TELEMETRY_ENABLED=true in the environment still turns them back on.
+# The checkout above resets this patch, so it is reapplied on every build.
+TELEMETRY_SRC="apps/server/src/telemetry/AnalyticsService.ts"
+# One known form per upstream layout: "<on>|<off>". Exactly one must match.
+TELEMETRY_FORMS=(
+  'const enabledByDefault = !isCiEnvironment(hostEnvironment);|const enabledByDefault = false;'
+  'enabled: Config.Boolean("T3CODE_TELEMETRY_ENABLED").pipe(Config.withDefault(true)),|enabled: Config.Boolean("T3CODE_TELEMETRY_ENABLED").pipe(Config.withDefault(false)),'
+)
+telemetry_patched=0
+for form in "${TELEMETRY_FORMS[@]}"; do
+  on="${form%%|*}"; off="${form#*|}"
+  if [ "$(grep -cF "$on" "$TELEMETRY_SRC")" = "1" ]; then
+    ON="$on" OFF="$off" perl -0pi -e 's/\Q$ENV{ON}\E/$ENV{OFF}/' "$TELEMETRY_SRC"
+    grep -qF "$off" "$TELEMETRY_SRC" && telemetry_patched=1
+    break
+  fi
+done
+if [ "$telemetry_patched" != "1" ]; then
+  echo "build: telemetry default not found in $TELEMETRY_SRC (upstream changed?). Refusing to build with telemetry on." >&2
+  exit 1
+fi
+log "Telemetry default patched to off"
+
+# Optional display name (PRODUCT_NAME in config.env). productName drives the .app name,
+# menu bar and Dock label. The bundle id and the data directories do not change, so
+# settings and threads carry over. Empty = keep upstream's name.
+PRODUCT_NAME="$( [ -f "$ROOT/config.env" ] && . "$ROOT/config.env"; printf '%s' "${PRODUCT_NAME:-}")"
+if [ -n "$PRODUCT_NAME" ]; then
+  PRODUCT_JSON="apps/desktop/package.json"
+  if [ "$(grep -cE '^ *"productName": "[^"]*",?$' "$PRODUCT_JSON")" != "1" ]; then
+    echo "build: productName not found in $PRODUCT_JSON (upstream changed?)" >&2
+    exit 1
+  fi
+  NAME="$PRODUCT_NAME" perl -pi -e 's/^( *)"productName": "[^"]*"(,?)$/$1"productName": "$ENV{NAME}"$2/' "$PRODUCT_JSON"
+  grep -qF "\"productName\": \"$PRODUCT_NAME\"" "$PRODUCT_JSON" || { echo "build: rename patch did not apply" >&2; exit 1; }
+  log "Product name set to $PRODUCT_NAME"
+fi
 
 # --- Toolchain (versions pinned by the checked-out release) -----------------
 json_field() { # json_field <file> <dotted.path>
@@ -109,3 +151,5 @@ fi
 
 "$ROOT/bin/verify.sh" "$DMG"
 log "Done: $DMG"
+exit 0
+}

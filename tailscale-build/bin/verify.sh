@@ -38,5 +38,13 @@ for needle in "${needles[@]}"; do
   fi
 done
 
+# 3. Product usage events must default to off (see the patch in build.sh).
+asar="$app/Contents/Resources/app.asar"
+if ! grep -qaF 'const enabledByDefault = false;' "$asar" \
+  && ! grep -qaE 'enabled: [A-Za-z0-9_$.]+\("T3CODE_TELEMETRY_ENABLED"\)\.pipe\([A-Za-z0-9_$.]*withDefault\((false|!1)\)\)' "$asar"; then
+  echo "verify: FAIL telemetry default is not off in the bundle" >&2
+  fail=1
+fi
+
 [ "$fail" -eq 0 ] || exit 1
-echo "verify: OK $(basename "$app") — T3 Connect config absent, no update feed"
+echo "verify: OK $(basename "$app") — T3 Connect config absent, no update feed, telemetry off by default"
