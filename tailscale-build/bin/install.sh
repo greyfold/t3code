@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install a built DMG into /Applications, replacing the existing T3 Code app.
+# Install a built DMG into /Applications, replacing the existing Privacy Code app.
 # Refuses while the app is running. The replaced app goes to the Trash.
 # Usage: bin/install.sh <path/to.dmg>
 set -euo pipefail

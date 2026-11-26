@@ -1,5 +1,5 @@
 #!/bin/bash
-# Nightly check: build the latest *stable* T3 Code release if it has not been
+# Nightly check: build the latest *stable* Privacy Code release if it has not been
 # built yet. Run by launchd (local.t3code.nightly-build); safe to run by hand.
 #
 #   bin/nightly.sh           only acts between 22:00 and 06:00
@@ -76,7 +76,7 @@ if [ "$latest" != "$built" ]; then
   else
     echo "$latest $today" >"$STATE/last-failure"
     log "Build of $latest FAILED. See $buildlog"
-    notify "T3 Code: build failed" "Building $latest failed. Log: $buildlog"
+    notify "Privacy Code: build failed" "Building $latest failed. Log: $buildlog"
     exit 1
   fi
 else
@@ -92,13 +92,13 @@ if [ "$AUTO_INSTALL" = "1" ]; then
   if "$ROOT/bin/install.sh" "$dmg"; then
     rm -f "$STATE/pending-install"
     log "Installed $pending into /Applications."
-    notify "T3 Code $pending installed" "Build without T3 Connect installed into /Applications."
+    notify "Privacy Code $pending installed" "Build without Privacy Connect installed into /Applications."
   else
     log "Install of $pending postponed (app running?). Will retry on the next run."
-    [ -f "$STATE/notified-$pending" ] || notify "T3 Code $pending ready" "Quit T3 Code: it will be installed on the next run."
+    [ -f "$STATE/notified-$pending" ] || notify "Privacy Code $pending ready" "Quit Privacy Code: it will be installed on the next run."
     touch "$STATE/notified-$pending"
   fi
 elif [ ! -f "$STATE/notified-$pending" ]; then
-  notify "T3 Code $pending ready" "Build without T3 Connect: $dmg"
+  notify "Privacy Code $pending ready" "Build without Privacy Connect: $dmg"
   touch "$STATE/notified-$pending"
 fi

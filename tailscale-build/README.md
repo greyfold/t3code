@@ -1,17 +1,20 @@
-# Privacy Code build scripts (unofficial, macOS)
+# privacy-code — Privacy Code build scripts (unofficial, macOS and iOS)
+
+Repository: `privacy-code`. The app it builds is called **Privacy Code**.
 
 An unofficial fork based on the T3 Code source code. These scripts build the
-desktop app from upstream's **stable** release tags with T3 Connect switched off
-and product usage events removed, for people who reach their machines
+desktop app (macOS) and an iOS app from upstream's **stable** release tags with
+T3 Connect switched off, product usage events, crash reports and traces removed,
+and the app renamed to **Privacy Code**, for people who reach their machines
 over Tailscale (or SSH / the local network) and do not want the cloud relay.
 
 **This project is unofficial.** It is not affiliated with, endorsed by, or
 maintained by T3 Tools, Inc. "T3 Code", "T3 Connect" and the T3 logos are their
 trademarks; upstream's `TRADEMARK.md` explains what forks may and may not do with
 them. Nothing is distributed from this repository except the build scripts: you
-build the app yourself, from upstream's source, on your own Mac. If you pass a
-build on to anyone else, give it your own name (`PRODUCT_NAME` below) and replace
-the icons first, as that policy asks.
+build the app yourself, from upstream's source, on your own Mac. The builds are
+already renamed "Privacy Code" and use their own icon (see *Rename*), as that
+policy asks; if you pass a build on to anyone else, keep it that way.
 
 ## What differs from the official app
 
@@ -27,10 +30,46 @@ a check does not hold.
 | **Product usage events are removed** | Source patches in `apps/server/src/telemetry/AnalyticsService.ts`: the default is turned off, the startup switch is fixed to off so no environment variable turns it back on, and the default endpoint (`ingest.t3.codes`) and PostHog project key are replaced by empty strings. | The upstream "on" forms, `ingest.t3.codes` and the key are absent from the whole app bundle. |
 | **PostHog and Sentry domains removed** | The Cursor SDK dependency carries a list of well-known connector domains. `posthog.com`, `sentry.io` and `sentry.dev` are deleted from it after each dependency install, including the one the desktop build runs in its staging folder (one line is added to `scripts/build-desktop-artifact.ts` to call `harden.sh` there), and from the copy of upstream's SDK patch file that is packed into the app. | None of the three strings is anywhere in the app bundle. |
 | **Separate data folder: `~/.safecode`** | Source patches replace the default home `~/.t3` in `apps/desktop/src/app/DesktopStatePaths.ts`, `apps/server/src/os-jank.ts`, `apps/server/src/cli/browser.ts`, `apps/server/src/project/AgentSessionScanner.ts` and `apps/server/src/device/SshDeviceHost.ts`. `T3CODE_HOME` still overrides it. | The desktop code inside `app.asar` joins the home directory with `.safecode`. |
-| **Optional display name** | Only if `PRODUCT_NAME` is set in `config.env`: `productName` in `apps/desktop/package.json` is replaced. The bundle id stays the same. | Not checked. |
+| **Renamed to "Privacy Code"** | `bin/rebrand.sh` runs on the checkout after every reset: `productName` becomes "Privacy Code" (`.app` name, menu bar, Dock), display names and UI text are renamed, "T3 Connect" reads "Privacy Connect", the in-app logo and app icon are replaced ("PC" mark in `brand/`, rasters from `brand/make-icons.sh`), and DMG files are named `Privacy-Code-<version>-<arch>.dmg`. | `build.sh` fails if the product name line is not found exactly once or the rename did not apply. |
 | **Your own code signature** (optional) | Upstream's signing needs their provisioning profile, so `bin/sign.sh` signs with your Developer ID instead, with upstream's entitlements minus the passkey ones that only T3 Connect uses. | `codesign --verify --deep --strict` in `sign.sh`. |
 
 Tailscale, SSH and local-network access are untouched.
+
+### The iOS app
+
+`bin/build-ios.sh [simulator|device]` builds the iOS app (upstream's React Native/Expo
+client, `apps/mobile`) from an `ios/` working copy of the same release, with every
+connection to upstream's own infrastructure removed. It still talks to **your**
+server over LAN, Tailscale, an SSH tunnel or a direct URL. The app is named
+"Privacy Code" with its own identity (bundle `local.t3code.private`, scheme
+`t3code-private`), so it is a separate sandbox: the official app and its data are
+untouched, and the new app starts empty and must be paired with a server again.
+Details are in `ios/PRIVACY.md`.
+
+| Removed | How |
+| --- | --- |
+| **T3 Connect** (Clerk sign-in, relay, device approval, cloud environments) | The cloud config is constant-null; `@clerk/expo` resolves to an inert stub; the Clerk plugin and native module are dropped and excluded from native autolinking. The repo `.env` is deleted before every build. |
+| **Crash and startup reports** (expo-observe, via the relay to Axiom) | The reporter is a no-op, `expo-observe` resolves to a stub and is excluded from native autolinking, the render error boundary no longer reports, and the "Send crash reports" toggle never shows. |
+| **Relay trace export** (OTLP to Axiom) | Trace config is constant-null: no endpoint, dataset or token. |
+| **Over-the-air updates** (`u.expo.dev`) | Updates disabled, no URL, check set to never. |
+| **Remote and Live Activity push** (relay-backed) | Widget push disabled; no relay to register with. |
+| **Associated domains** (`clerk.t3.codes`, `app.t3.codes`) | Removed from the entitlements and Android intent filters. |
+| **Upstream identity** | No upstream team ID or EAS project. |
+
+`bin/verify-ios.sh` fails the build if the app contains `relay.t3.codes`,
+`clerk.t3.codes`, `ingest.t3.codes`, `api.axiom.co`, `u.expo.dev`, `observe.expo`,
+a live Clerk key, PostHog, Sentry, or the Google / GitHub favicon services; if an
+update URL is configured or updates are not disabled; or if the remote-push
+entitlement is present.
+
+Kept on purpose, all local: a startup-crash log with a manual "Copy report"
+button; camera (pairing QR), microphone (voice input), photo save and local
+network, each behind its own prompt; and `NSAllowsArbitraryLoads`, because
+self-hosted servers on a LAN are often plain `http://`.
+
+Not possible without T3 Connect: push notifications while the app is closed.
+On a device build signed with a personal team, the App Group cannot be
+registered, so there are no home-screen widgets and no share extension.
 
 ### The telemetry patches, exactly
 
@@ -82,11 +121,19 @@ Threads that already have a worktree keep using it at its old path under
 because the bundle id is unchanged: Electron's own data in
 `~/Library/Application Support/t3code-v2`, and the `t3code://` URL scheme.
 
+### What the rename does not touch
+
+Renaming would break builds or move user data, so these stay as upstream has
+them: identifiers (`@t3tools`, `T3CODE_*`, bundle ids, URL schemes), the
+`t3code-v2` Electron data folder and legacy profile names, upstream URLs and
+domains, and docs and marketing pages.
+
 ### What this build does not change
 
-- **The mobile apps.** The iOS and Android apps from the stores are upstream's
-  own builds. They send their own crash reports, startup timings and connection
-  traces through upstream's relay, whatever desktop build they connect to.
+- **The store versions of the mobile apps.** The iOS and Android apps from the
+  stores are upstream's own builds and still send crash reports, startup timings and
+  connection traces through upstream's relay. Use the Privacy Code iOS build above
+  instead. There is no Android build here.
 - **Provider traffic.** Prompts, code and responses go from your machine to the
   provider you use (Anthropic, OpenAI, ...), as in the official app.
 - **Other outbound requests** the server makes on its own, such as provider CLI
@@ -103,15 +150,16 @@ because the bundle id is unchanged: Electron's own data in
 
 ## Requirements
 
-macOS with Xcode command line tools, `git`, `curl` and Rust (`cargo`). Node and
+macOS with Xcode command line tools, `git`, `curl` and Rust (`cargo`). Xcode and CocoaPods for the iOS build. Node and
 pnpm are downloaded into `toolchain/` at the versions the release pins.
 
 ## Use
 
 ```sh
-cd tailscale-build
+cd privacy-code
 cp config.example.env config.env   # optional: signing, auto-install
 bin/build.sh v0.1.11               # -> release/v0.1.11/*.dmg
+bin/build-ios.sh                   # iOS simulator build (device: bin/build-ios.sh device)
 bin/install.sh release/v0.1.11/*.dmg
 ```
 

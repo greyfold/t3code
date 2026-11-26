@@ -1,13 +1,13 @@
 #!/bin/bash
-# Build T3 Code desktop (macOS) from a release tag, with T3 Connect disabled.
+# Build Privacy Code (T3 Code upstream) desktop (macOS) from a release tag, with Connect disabled.
 #
 # Usage: bin/build.sh <tag>        e.g. bin/build.sh v0.1.11
 #
-# T3 Connect is switched off the way upstream documents it for source builds
+# Connect is switched off the way upstream documents it for source builds
 # (docs/operations/connect-setup.md): no Clerk / relay public config at build
 # time. Tailscale, SSH and local-network access do not depend on it.
 # No update feed is baked in either, so the app never replaces itself with an
-# official (T3 Connect enabled) release.
+# official (Connect enabled) release.
 set -euo pipefail
 
 # The braces make bash read the whole script before running it, so an edit to this
@@ -38,7 +38,7 @@ log "Checking out $TAG"
 git fetch --quiet --tags --force origin
 git checkout --quiet --force --detach "refs/tags/$TAG"
 git reset --quiet --hard "refs/tags/$TAG"
-# A repo-root .env is what turns T3 Connect on. Never let one survive.
+# A repo-root .env is what turns Connect on. Never let one survive.
 rm -f .env .env.local
 
 # Product usage events (ingest.t3.codes) are on by default upstream. Flip the default
@@ -70,19 +70,17 @@ log "Telemetry default patched to off"
 "$ROOT/bin/harden.sh" source "$SRC"
 log "Usage-events endpoint removed, data folder set to ~/.safecode"
 
-# Optional display name (PRODUCT_NAME in config.env). productName drives the .app name,
-# menu bar and Dock label. The bundle id does not change. Empty = keep upstream's name.
-PRODUCT_NAME="$( [ -f "$ROOT/config.env" ] && . "$ROOT/config.env"; printf '%s' "${PRODUCT_NAME:-}")"
-if [ -n "$PRODUCT_NAME" ]; then
-  PRODUCT_JSON="apps/desktop/package.json"
-  if [ "$(grep -cE '^ *"productName": "[^"]*",?$' "$PRODUCT_JSON")" != "1" ]; then
-    echo "build: productName not found in $PRODUCT_JSON (upstream changed?)" >&2
-    exit 1
-  fi
-  NAME="$PRODUCT_NAME" perl -pi -e 's/^( *)"productName": "[^"]*"(,?)$/$1"productName": "$ENV{NAME}"$2/' "$PRODUCT_JSON"
-  grep -qF "\"productName\": \"$PRODUCT_NAME\"" "$PRODUCT_JSON" || { echo "build: rename patch did not apply" >&2; exit 1; }
-  log "Product name set to $PRODUCT_NAME"
+# Rename to "Privacy Code": product name (drives the .app name, menu bar and Dock label), UI text
+# and the app icon. Electron's userData path is set explicitly by the app, so settings and state
+# do not move. The checkout above resets these edits, so they are reapplied on every build.
+PRODUCT_JSON="apps/desktop/package.json"
+if [ "$(grep -cF '"productName": "T3 Code (Beta)"' "$PRODUCT_JSON")" != "1" ]; then
+  echo "build: productName not found in $PRODUCT_JSON (upstream changed?)" >&2
+  exit 1
 fi
+"$ROOT/bin/rebrand.sh" "$SRC"
+grep -qF '"productName": "Privacy Code"' "$PRODUCT_JSON" || { echo "build: rename patch did not apply" >&2; exit 1; }
+log "Renamed to Privacy Code"
 
 # --- Toolchain (versions pinned by the checked-out release) -----------------
 json_field() { # json_field <file> <dotted.path>
@@ -123,7 +121,7 @@ fi
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 
-# --- Environment: T3 Connect off, no update feed, unsigned ------------------
+# --- Environment: Connect off, no update feed, unsigned ------------------
 while IFS='=' read -r name _; do
   case "$name" in
     T3CODE_*|VITE_*|EXPO_PUBLIC_*|CLERK_*|CSC_*|APPLE_API_*|GITHUB_REPOSITORY) unset "$name" ;;
