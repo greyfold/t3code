@@ -65,9 +65,13 @@ if [ "$telemetry_patched" != "1" ]; then
 fi
 log "Telemetry default patched to off"
 
+# Usage events hard off with the upstream endpoint and key removed, and ~/.safecode as the
+# data folder. See bin/harden.sh.
+"$ROOT/bin/harden.sh" source "$SRC"
+log "Usage-events endpoint removed, data folder set to ~/.safecode"
+
 # Optional display name (PRODUCT_NAME in config.env). productName drives the .app name,
-# menu bar and Dock label. The bundle id and the data directories do not change, so
-# settings and threads carry over. Empty = keep upstream's name.
+# menu bar and Dock label. The bundle id does not change. Empty = keep upstream's name.
 PRODUCT_NAME="$( [ -f "$ROOT/config.env" ] && . "$ROOT/config.env"; printf '%s' "${PRODUCT_NAME:-}")"
 if [ -n "$PRODUCT_NAME" ]; then
   PRODUCT_JSON="apps/desktop/package.json"
@@ -126,10 +130,12 @@ while IFS='=' read -r name _; do
   esac
 done < <(env)
 export CI=1
+export PRIVACY_HARDEN_SCRIPT="$ROOT/bin/harden.sh"
 
 # --- Build ------------------------------------------------------------------
 log "Installing dependencies (node $(node --version), pnpm $(pnpm --version))"
 pnpm install --frozen-lockfile
+"$ROOT/bin/harden.sh" deps "$SRC"
 
 log "Building desktop artifact $TAG ($ARCH)"
 rm -rf "$OUT"

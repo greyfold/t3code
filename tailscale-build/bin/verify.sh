@@ -38,13 +38,29 @@ for needle in "${needles[@]}"; do
   fi
 done
 
-# 3. Product usage events must default to off (see the patch in build.sh).
+# 3. Product usage events must not be switchable on (see bin/harden.sh and build.sh).
 asar="$app/Contents/Resources/app.asar"
-if ! grep -qaF 'const enabledByDefault = false;' "$asar" \
-  && ! grep -qaE 'enabled: [A-Za-z0-9_$.]+\("T3CODE_TELEMETRY_ENABLED"\)\.pipe\([A-Za-z0-9_$.]*withDefault\((false|!1)\)\)' "$asar"; then
-  echo "verify: FAIL telemetry default is not off in the bundle" >&2
+# Either upstream "on" form surviving in the bundle means a patch did not apply.
+for on_form in 'enabledByDefault = !isCiEnvironment(' 'getOrElse(telemetryConfig.enabled'; do
+  if grep -qaF -- "$on_form" "$asar"; then
+    echo "verify: FAIL telemetry can still be switched on in the bundle ($on_form)" >&2
+    fail=1
+  fi
+done
+
+# 4. Reporting addresses removed by bin/harden.sh must not be anywhere in the bundle.
+for needle in 'ingest.t3.codes' 'phc_XOWci4' 'posthog.com' 'sentry.io' 'sentry.dev'; do
+  if grep -rqaF -- "$needle" "$app/Contents"; then
+    echo "verify: FAIL found '$needle' in the bundle" >&2
+    fail=1
+  fi
+done
+
+# 5. The data folder must be ~/.safecode, not the official app's ~/.t3.
+if ! grep -qaF 'homeDirectory, ".safecode")' "$asar"; then
+  echo "verify: FAIL data folder is not .safecode in the bundle" >&2
   fail=1
 fi
 
 [ "$fail" -eq 0 ] || exit 1
-echo "verify: OK $(basename "$app") — T3 Connect config absent, no update feed, telemetry off by default"
+echo "verify: OK $(basename "$app") — T3 Connect config absent, no update feed, usage events removed, data folder ~/.safecode"

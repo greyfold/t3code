@@ -2,7 +2,7 @@
 
 An unofficial fork based on the T3 Code source code. These scripts build the
 desktop app from upstream's **stable** release tags with T3 Connect switched off
-and product usage events off by default, for people who reach their machines
+and product usage events removed, for people who reach their machines
 over Tailscale (or SSH / the local network) and do not want the cloud relay.
 
 **This project is unofficial.** It is not affiliated with, endorsed by, or
@@ -15,7 +15,8 @@ the icons first, as that policy asks.
 
 ## What differs from the official app
 
-Every difference is listed here. Each one is applied by `bin/build.sh` at build
+Every difference is listed here. Each one is applied by `bin/build.sh` (which calls
+`bin/harden.sh` for the source and dependency edits) at build
 time and checked on the finished DMG by `bin/verify.sh`, which fails the build if
 a check does not hold.
 
@@ -23,16 +24,18 @@ a check does not hold.
 | --- | --- | --- |
 | **T3 Connect is off** (cloud sign-in, relay, managed tunnel) | No source change. Upstream disables it in any build made without the Clerk and relay identifiers ([`docs/operations/connect-setup.md`](../docs/operations/connect-setup.md)). The script deletes any repo-root `.env` and clears `T3CODE_*`, `VITE_*`, `EXPO_PUBLIC_*` and `CLERK_*` from the environment before building. | Upstream's Clerk publishable key, OAuth client id and relay host are absent from the bundle. |
 | **No self-update** | No source change. No update repository is given to the build, so no update feed is written. | `Contents/Resources/app-update.yml` does not exist. |
-| **Product usage events are off by default** | **One-line source patch** in `apps/server/src/telemetry/AnalyticsService.ts`: the default for sending events to `ingest.t3.codes` is changed from on to off. | The server code inside `app.asar` carries the "off" default. |
-| **Optional display name** | Only if `PRODUCT_NAME` is set in `config.env`: `productName` in `apps/desktop/package.json` is replaced. The bundle id and data directories stay the same. | Not checked. |
+| **Product usage events are removed** | Source patches in `apps/server/src/telemetry/AnalyticsService.ts`: the default is turned off, the startup switch is fixed to off so no environment variable turns it back on, and the default endpoint (`ingest.t3.codes`) and PostHog project key are replaced by empty strings. | The upstream "on" forms, `ingest.t3.codes` and the key are absent from the whole app bundle. |
+| **PostHog and Sentry domains removed** | The Cursor SDK dependency carries a list of well-known connector domains. `posthog.com`, `sentry.io` and `sentry.dev` are deleted from it after each dependency install, including the one the desktop build runs in its staging folder (one line is added to `scripts/build-desktop-artifact.ts` to call `harden.sh` there), and from the copy of upstream's SDK patch file that is packed into the app. | None of the three strings is anywhere in the app bundle. |
+| **Separate data folder: `~/.safecode`** | Source patches replace the default home `~/.t3` in `apps/desktop/src/app/DesktopStatePaths.ts`, `apps/server/src/os-jank.ts`, `apps/server/src/cli/browser.ts`, `apps/server/src/project/AgentSessionScanner.ts` and `apps/server/src/device/SshDeviceHost.ts`. `T3CODE_HOME` still overrides it. | The desktop code inside `app.asar` joins the home directory with `.safecode`. |
+| **Optional display name** | Only if `PRODUCT_NAME` is set in `config.env`: `productName` in `apps/desktop/package.json` is replaced. The bundle id stays the same. | Not checked. |
 | **Your own code signature** (optional) | Upstream's signing needs their provisioning profile, so `bin/sign.sh` signs with your Developer ID instead, with upstream's entitlements minus the passkey ones that only T3 Connect uses. | `codesign --verify --deep --strict` in `sign.sh`. |
 
 Tailscale, SSH and local-network access are untouched.
 
-### The telemetry patch, exactly
+### The telemetry patches, exactly
 
-The script handles both layouts of the upstream file and applies whichever one
-is present:
+`bin/build.sh` first turns the default off, handling both layouts of the upstream
+file:
 
 ```diff
  # v0.1.12 and later
@@ -44,12 +47,40 @@ is present:
 +  enabled: Config.Boolean("T3CODE_TELEMETRY_ENABLED").pipe(Config.withDefault(false)),
 ```
 
-If neither line is found (upstream rewrote the file again), the build stops
-with an error instead of producing an app with telemetry on. To turn the events
-back on, set `T3CODE_TELEMETRY_ENABLED=true` in your shell profile.
+`bin/harden.sh source` then removes the switch and the destination (v0.1.12 layout):
+
+```diff
+-    Config.withDefault("phc_…"),               # upstream's PostHog project key
++    Config.withDefault(""),
+-    Config.withDefault("https://ingest.t3.codes"),
++    Config.withDefault(""),
+-  const enabledAtStartup = Option.getOrElse(telemetryConfig.enabled, () => enabledByDefault);
++  const enabledAtStartup = false as boolean;
+```
+
+Every edit must match exactly once. If a line is not found (upstream rewrote the
+file), the build stops with an error instead of producing an app without the
+edit. There is no setting that turns the events back on in this build.
 
 What upstream sends when the events are on is described in
 [`docs/user/telemetry.md`](../docs/user/telemetry.md).
+
+### The data folder
+
+This build keeps threads, settings, tools and worktrees in `~/.safecode`, so it
+never reads or writes the official app's `~/.t3`. A first launch therefore starts
+empty. To carry existing data over, quit both apps and copy it before the first
+launch:
+
+```sh
+mkdir -m 700 ~/.safecode
+cp -a ~/.t3/userdata ~/.t3/tools ~/.safecode/
+```
+
+Threads that already have a worktree keep using it at its old path under
+`~/.t3/worktrees`. Two things still share a location with the official app
+because the bundle id is unchanged: Electron's own data in
+`~/Library/Application Support/t3code-v2`, and the `t3code://` URL scheme.
 
 ### What this build does not change
 
@@ -60,6 +91,13 @@ What upstream sends when the events are on is described in
   provider you use (Anthropic, OpenAI, ...), as in the official app.
 - **Other outbound requests** the server makes on its own, such as provider CLI
   version checks and model lists.
+- **Other upstream addresses left in the code**, such as `app.t3.codes` (thread
+  links, allowed sign-in return address) and documentation links. The T3 Connect,
+  updater and relay-tracing code is also still in the bundle; it has no
+  configuration to run with.
+- **Windows/WSL paths** still name `~/.t3`; these scripts only build for macOS.
+  The remote device host feature (simulators on another Mac over SSH) now looks
+  under `~/.safecode` on that Mac and has not been tested.
 - **A web client opened in a browser** does not read the server's telemetry
   setting.
 
